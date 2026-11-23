@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="engine/style.css">
+</head>
+<body>
+<script src="node_modules/d3-array/dist/d3-array.min.js"></script>
+<script src="node_modules/d3-geo/dist/d3-geo.min.js"></script>
+<script type="module">
+// Worked example: "how the continents split and how the Himalayas rose" in one continuous shot.
+// Globe at 200 Ma → continents drift to today → zoom on India → a block is cut out, time rewinds 50 Myr,
+// India hits Asia and the mountain rises → the block drops back and the camera pulls away.
+// Facts: Pangaea began to break up ~200 Ma (USGS/NPS). India met Asia 40–50 Ma (USGS). Coastlines: GPlates, Müller et al. 2019.
+import { createGlobe, seg, es, ease, lerp, cl } from './engine/globe.js';
+import { createStage, addCanvas, shape, label, captions, counter, timeline } from './engine/overlay.js';
+import { createBlock } from './engine/block.js';
+
+const DUR = 36.5; window.DUR = DUR;
+const S = createStage();
+const G = await createGlobe({ canvas: S.canvas, shine: 0.55, terrain: 0 });
+const c2 = addCanvas(S), B = createBlock({ canvas: c2 });
+
+const HIM = [84, 29];                                       // where the camera lands: the Himalayas
+const RANGE = [[73.5, 35.6], [76, 34.2], [78.5, 31.8], [81, 30.2], [84, 28.6], [87, 27.9], [90, 27.8], [93, 28.3], [95.6, 29.4]];
+const india = G.polyAt(78, 22);
+
+const cut = shape(S, 'rect', { x: 360, y: 660, width: 360, height: 600, fill: 'none', stroke: '#F5F7FA', 'stroke-width': 5, 'stroke-dasharray': 1920, 'stroke-dashoffset': 1920, opacity: 0 });
+const arrows = shape(S, 'g', { fill: 'none', stroke: '#F5F7FA', 'stroke-width': 7, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', opacity: 0 });
+const a1 = document.createElementNS('http://www.w3.org/2000/svg', 'path'), a2 = a1.cloneNode(); arrows.append(a1, a2);
+const lPan = label(S, 'بانجيا', { size: 84, kind: 'title' });
+const lInd = label(S, 'الهند', { size: 62, kind: 'title' });
+const lIndia = label(S, 'الهند'), lAsia = label(S, 'آسيا'), lHim = label(S, 'جبال الهيمالايا', { size: 72, kind: 'title' });
+const num = counter(S, { pre: 'قبل', post: 'مليون عام', done: 'اليوم' });
+const tl = timeline(S, { min: 0, max: 200, from: 200, ticks: [[200, '200'], [150, '150'], [100, '100'], [50, '50'], [0, 'اليوم']] });
+const cap = captions(S, [
+  [0.3, 3.66, 'انظر إلى <b>الأرض</b>'], [4.2, 6.14, 'كانت كلها <b>قطعة واحدة</b>'], [6.8, 8.5, 'ثم بدأت <b>تتفكك</b>'],
+  [8.5, 10.62, 'بسرعة <b>لا تراها العين</b>'], [10.62, 13.08, 'سرعة تقارب <b>نموّ أظافرك</b>'], [13.08, 16.24, 'لكن امنحها <b>200 مليون عام</b>'],
+  [16.24, 18.42, 'لترسم لك <b>خريطة اليوم</b>'], [18.42, 20.84, 'وهذه القطعة هي <b>الهند</b>'], [20.84, 22.54, 'انطلقت <b>وحدها</b>'],
+  [22.54, 24.44, 'حتى <b>اصطدمت</b> بآسيا'], [24.44, 27.24, 'ولم تجد الأرض <b>مكانًا</b> تذهب إليه'], [27.24, 29.18, '<b>فارتفعت</b> إلى الأعلى'], [29.18, 31.6, 'وهكذا <b>وُلدت</b>'],
+]);
+
+window.renderAt = function (t) {
+  // ---- globe: drift, then zoom in; at the end zoom back out
+  const p = ease(seg(t, 6.8, 18.2)), age = 200 * (1 - p), END = t >= 31.9;
+  const z = END ? 1 - es(seg(t, 33.6, 35.5)) : es(seg(t, 18.5, 20.3));
+  G.age(age);
+  G.view({ lon: lerp(END ? 72 + (t - 33.6) * 2.2 : 6 + 52 * p + Math.min(t, 18.5) * 0.55, HIM[0], z), lat: lerp(END ? 16 : 2 + 16 * p, HIM[1], z),
+    dist: lerp(10 + 0.9 * (1 - es(seg(t, 0, 6.8))), 2.2, z), y: lerp(END ? -0.06 : -0.2, 0, z) });
+  G.ridge(RANGE, END ? 1 : es(cl((50 - age) / 50)), 1 - z);            // the range grows over the last 50 Myr
+  G.glow(es(seg(t, 5.0, 6.3)) * (1 - seg(t, 7.4, 9.2)));                 // the cracks light up before the break-up
+  G.tint({ polys: [india], amount: END ? 0 : cl((134 - age) / 14) * (1 - seg(t, 20.0, 20.7)) });
+  G.render();
+
+  // ---- block: lifts out of the map, rewinds 50 Myr, then gets squeezed
+  const xf = seg(t, 20.8, 20.95);                                          // block replaces the map
+  const up = es(seg(t, 21.0, 23.0)) * (1 - es(seg(t, 31.9, 33.3)));       // 0 = lying in the map, 1 = standing as a block
+  const q = t < 23.2 ? 1 - es(seg(t, 21.7, 22.9)) : 0.22 * es(seg(t, 23.4, 27.1)) + 0.78 * es(seg(t, 27.2, 29.3));
+  c2.style.opacity = xf * (1 - seg(t, 33.35, 33.65));
+  S.canvas.style.opacity = END ? seg(t, 32.7, 33.3) : 1 - seg(t, 21.0, 21.7);
+  cut.style.strokeDashoffset = t > 30 ? 0 : 1920 * (1 - es(seg(t, 20.2, 20.75)));
+  cut.style.opacity = seg(t, 20.2, 20.25) * (1 - seg(t, 21.4, 21.8)) + seg(t, 33.2, 33.35) * (1 - seg(t, 33.6, 33.9));
+  const lab = seg(t, 22.9, 23.3) * (1 - seg(t, 28.7, 29.1));
+  if (xf > 0) {
+    B.squeeze(q);
+    B.view({ az: lerp(-Math.PI / 2, -0.50, up) + 0.16 * es(seg(t, 23.4, 31.6)) * up, el: lerp(Math.PI / 2 - 0.001, 0.52, up), dist: lerp(36.3, 32, up), ty: lerp(0.575, 0.45 + 0.2 * q, up), lookX: 0.05 * up });
+    B.render();
+    const A = 7 * Math.sin(Math.PI * seg(t, 23.7, 24.5)) + 4.5 * seg(t, 27.2, 27.7) * (1 - seg(t, 29.0, 29.7));   // the ground shakes
+    c2.style.transform = `translate(${Math.sin(t * 83) * A}px,${Math.cos(t * 71) * A}px)`;
+    const sI = B.shape(-1.25, B.depth / 2, q), sA = B.shape(1.35, B.depth / 2, q), sH = B.shape(0.15, B.depth / 2, q);
+    const pI = B.project(sI.x, sI.bot - 0.38, B.depth / 2), pA = B.project(sA.x, sA.bot - 0.38, B.depth / 2), pH = B.project(sH.x, sH.bot - 0.5, B.depth / 2);
+    lIndia.set(pI.x, pI.y, lab); lAsia.set(pA.x, pA.y, lab); lHim.set(540, pH.y, seg(t, 29.5, 30.0) * (1 - seg(t, 31.7, 31.95)));
+    const wob = 8 * Math.sin(t * 7), ar = (e, P, dir) => { const x = P.x + dir * wob, y = P.y + 95; e.setAttribute('d', `M${x - dir * 70},${y} L${x + dir * 70},${y} M${x + dir * 34},${y - 30} L${x + dir * 70},${y} L${x + dir * 34},${y + 30}`); };
+    ar(a1, pI, 1); ar(a2, pA, -1); arrows.style.opacity = seg(t, 23.0, 23.4) * (1 - seg(t, 28.2, 28.7));
+  } else { lIndia.set(0, 0, 0); lAsia.set(0, 0, 0); lHim.set(0, 0, 0); arrows.style.opacity = 0; }
+
+  // ---- counter + timeline: 200 → today on the globe, then 50 → today on the block
+  const onBlock = t >= 20.9, V = onBlock ? 50 * (1 - q) : age;
+  const hud = onBlock ? seg(t, 22.3, 22.8) * (1 - seg(t, 31.6, 31.9)) : 1 - seg(t, 18.5, 18.9);
+  num.set(V, { opacity: hud, doneAt: 0, bump: Math.sin(Math.PI * (seg(t, 18.15, 18.75) + seg(t, 29.3, 29.9))) }); tl.set(V, hud);
+
+  // ---- names
+  lPan.set(500, 1040, es(seg(t, 4.3, 4.9)) * (1 - seg(t, 6.5, 7.0)) * 0.95);
+  { const c = G.centroid(india, age), P = G.project(c[0], c[1]); lInd.set(P.x, P.y + 10, seg(t, 19.75, 20.05) * (1 - seg(t, 20.75, 21.0)) * (END ? 0 : 1)); }
+  cap.update(t);
+};
+await document.fonts.ready; window.renderAt(0); window.READY = true;
+</script>
+</body>
+</html>

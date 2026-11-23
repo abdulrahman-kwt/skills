@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="engine/style.css">
+</head>
+<body>
+<script src="node_modules/d3-array/dist/d3-array.min.js"></script>
+<script src="node_modules/d3-geo/dist/d3-geo.min.js"></script>
+<script type="module">
+// Starter film: shows every building block once. Copy it, keep the skeleton, replace the story.
+import { createGlobe, seg, es, ease, lerp, spring } from './engine/globe.js';
+import { createStage, label, pin, route, captions, counter, timeline } from './engine/overlay.js';
+
+const DUR = 14; window.DUR = DUR;                       // film length in seconds
+const S = createStage();
+const G = await createGlobe({ canvas: S.canvas });
+
+// ---- the pieces of this film
+const KW = [47.98, 29.37], TOKYO = [139.69, 35.69];
+const india = G.polyAt(78, 22);                          // the piece of land that holds this point
+const title = label(S, 'القالب شغال', { size: 96, kind: 'title' });
+const pKw = pin(S, G, ...KW, 'الكويت', { side: 'bottom', dx: 30 });
+const pTk = pin(S, G, ...TOKYO, 'طوكيو', { side: 'top' });
+const trip = route(S, G, [KW, TOKYO], { lift: 0.08, width: 6 });
+const num = counter(S, { pre: 'قبل', post: 'مليون سنة', done: 'اليوم' });
+const tl = timeline(S, { min: 0, max: 200, from: 200, ticks: [[200, '200'], [150, '150'], [100, '100'], [50, '50'], [0, 'اليوم']] });
+const cap = captions(S, [
+  [0.3, 2.6, 'كورة أرضية <b>بسواحل حقيقية</b>'],
+  [3.0, 5.8, 'تقرّب على <b>أي مكان</b>'],
+  [6.2, 9.0, 'وترسم <b>طريق</b> بين مكانين'],
+  [9.6, 13.4, 'وترجّع الزمن <b>200 مليون سنة</b>'],
+]);
+
+// ---- one function draws the whole film at second t (no timers, no CSS animations: every frame must be repeatable)
+window.renderAt = function (t) {
+  const zoom = es(seg(t, 2.8, 4.4)) * (1 - es(seg(t, 9.0, 10.2)));           // 0 = far, 1 = close
+  const back = ease(seg(t, 10.2, 13.2));                                      // 0 = today, 1 = 200 Ma
+  G.age(200 * back);
+  G.view({ lon: lerp(30 + t * 2, 93, zoom), lat: lerp(12, 30, zoom), dist: lerp(10, 7.6, zoom), y: lerp(-0.2, 0, zoom) });
+  G.tint({ polys: [india], amount: seg(t, 3.4, 4.0) * (1 - seg(t, 8.6, 9.2)) });
+  G.render();
+
+  title.set(540, 420, seg(t, 0.2, 0.6) * (1 - seg(t, 2.4, 2.8)), 0.9 + 0.1 * spring(seg(t, 0.2, 0.8)));
+  const pins = seg(t, 4.4, 4.7) * (1 - seg(t, 8.6, 9.0));
+  const go = es(seg(t, 6.2, 7.8));                                             // how far the route has drawn (0→1)
+  pKw.update(pins, spring(seg(t, 4.4, 4.9))); pTk.update(pins * (go >= trip.stops[1] ? 1 : 0), spring(seg(t, 7.8, 8.3)));   // Tokyo pops when the route arrives
+  trip.update(go, 1 - seg(t, 8.6, 9.0));
+  const hud = seg(t, 9.6, 10.0);
+  num.set(200 * back, { opacity: hud, doneAt: 0 }); tl.set(200 * back, hud);
+  cap.update(t);
+};
+await document.fonts.ready; window.renderAt(0); window.READY = true;
+</script>
+</body>
+</html>
